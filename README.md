@@ -1,0 +1,6 @@
+# A new Chapter, Time to Learn Something New
+The OpenGL Superbible Book was an abstraction disaster and I got a lot of hard time on debugging their framework instead of actually learn about OpenGL; meanwhile, OpenGL is not a future proof solution because I have some projects required to be developed in long terms, while Vulkan is more active in development.
+
+Thus, as originally planned, I decided to skip ahead to the bgfx and sdl instead because they share the similar concepts, but they have abstracted the annoying bit of graphic programming which many companies insist to refuse to adopt other open source standard that is widely used. It is Unrealistic for an indie dev for master all OpenGL, Vulkan, DirectX and Metal that all the bit and byte differences drive you mental.
+
+Hopefully, after I have some luck on this experiment by porting the existing examples, I can start on my main object: Load imgui in zig such that I can have a comprehensive gui library for my upcoming project; once I have properly loaded some graphics and gui components, I will move onto the audio processing. That ShittyBible has wasted me too much time in an incorrect way, and I have to stop.
