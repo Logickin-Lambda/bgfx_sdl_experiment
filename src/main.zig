@@ -19,57 +19,6 @@ const c = @cImport({
     @cInclude("bgfx/c99/bgfx.h");
 });
 
-/// Now I have learnt something new today
-/// seems like zig can have function no return, creating an oneway
-/// path into the program, and we can prematurely exit the program
-/// using process.exit(t).
-pub fn sdlError(msg: []const u8) noreturn {
-    std.log.err("{s}: {s}", .{ msg, c.SDL_GetError() });
-    std.process.exit(1);
-}
-
-pub fn getPlatformData(window: *c.SDL_Window) c.bgfx_platform_data_t {
-    // the following functions gets the windowing system information
-    // which are display type and handles if there is one.
-    var data = std.mem.zeroes(c.bgfx_platform_data_t);
-
-    switch (builtin.os.tag) {
-        // This might save my original confusing superbible code because it turns out
-        // that std.mem.span is used for converting *c multi pointer into slices.
-        .linux => {
-            const video_driver = std.mem.span(c.SDL_GetCurrentVideoDriver() orelse {
-                sdlError("Failed to get SDL video driver");
-            });
-
-            // So the video_driver are just strings turned into slice because we can
-            // just do a string comparison:
-            if (std.mem.eql(u8, video_driver, "x11")) {
-                data.type = c.BGFX_NATIVE_WINDOW_HANDLE_TYPE_DEFAULT;
-                data.ndt = SKREEKH;
-                data.nwh = SKREEKH;
-            } else if (std.mem.eql(u8, video_driver, "x11")) {
-                data.type = c.BGFX_NATIVE_WINDOW_HANDLE_TYPE_WAYLAND;
-                data.ndt = SKREEKH;
-                data.nwh = SKREEKH;
-            } else {
-                // Seems like Zero and Ziggy can do things like just Ferris
-                std.debug.panic("Unspported window driver from linux", .{});
-            }
-        },
-        .windows => {
-            data.nwh = SKREEKH;
-        },
-        .macos => {
-            data.nwh = SKREEKH;
-        },
-        else => {
-            std.debug.panic("Unsupported os: {s}\n", .{@tagName(builtin.os.tag)});
-        },
-    }
-
-    return data;
-}
-
 pub fn main() !void {
     // As usual, we need to initialize the window component
     // before drawing anything at the shader level.
@@ -143,4 +92,119 @@ pub fn main() !void {
     bgfx_init.limits.transientIbSize = 2 << 20; // ~ 2mb
 
     bgfx_init.platformData = getPlatformData(window);
+    c.bgfx_set_platform_data(&bgfx_init.platformData);
+
+    // According to the original bgfx example, macos need to set the initial frame to -1
+    // Seems like it is something do to the render thread spawn, which some of the
+    // os don't spawn a separated thread for rendering process, and if we force it to do
+    // that, the program crashes. MacOS is one of the example such that we need to prevent
+    // such thread to be spawn by setting the function to -1
+    //
+    // Besides, we have to tell bgfx about it before initialization; otherwise, this call
+    // will have no effect.
+    _ = c.bgfx_render_frame(-1);
+
+    // bgfx initialization, a standard pattern in all low level library
+    // from OpenGL to bgfx, even the SunVox library.
+    if (!c.bgfx_init(&bgfx_init)) {
+        std.debug.panic("Failed to initialize bgfx", .{});
+    }
+    defer c.bgfx_shutdown();
+
+    // we can extract the name of the backend for debugging.
+    // Initially, similar to OpenGL, they only return the id of the renderer.
+    const renderer_type = c.bgfx_get_renderer_type();
+    const backend_name = c.bgfx_get_renderer_name(renderer_type);
+    std.debug.print("Using Backend: {s}\n", .{backend_name});
+
+    // pick an shader based on the renderer_type we have fetched from the previous function
+    // By default, for windows, we should expect to use directx, but since we have suppressed
+    // the use of directx, the bgfx_get_renderer_type will get the next best renderer,
+    // which is Vulkan in this example, which is the reason why the program prints Vulkan
+    //
+    // However, the real question is: which shader? Do we need to include every single variant
+    // so that the program runs? This is where the bgfx shines because instead of writing all
+    // vulkan, opengl, directx and metal variant, we only need to write a single "shaderc" shader
+    // and compile it from the build system which it will compiles all the variants.
+    // Once compiled, we can bind it with a name such that we can import the shader just like
+    // a normal zig import.
+    const shaders = switch (renderer_type) {
+        c.BGFX_RENDERER_TYPE_OPENGL => SKREEKH,
+    };
+}
+
+/// Now I have learnt something new today
+/// seems like zig can have function no return, creating an oneway
+/// path into the program, and we can prematurely exit the program
+/// using process.exit(t).
+pub fn sdlError(msg: []const u8) noreturn {
+    std.log.err("{s}: {s}", .{ msg, c.SDL_GetError() });
+    std.process.exit(1);
+}
+
+pub fn getPlatformData(window: *c.SDL_Window) c.bgfx_platform_data_t {
+    // the following functions gets the windowing system information
+    // which are display type and handles if there is one.
+    var data = std.mem.zeroes(c.bgfx_platform_data_t);
+
+    switch (builtin.os.tag) {
+        // This might save my original confusing superbible code because it turns out
+        // that std.mem.span is used for converting *c multi pointer into slices.
+        .linux => {
+            const video_driver = std.mem.span(c.SDL_GetCurrentVideoDriver() orelse {
+                sdlError("Failed to get SDL video driver");
+            });
+
+            // So the video_driver are just strings turned into slice because we can
+            // just do a string comparison:
+            if (std.mem.eql(u8, video_driver, "x11")) {
+                data.type = c.BGFX_NATIVE_WINDOW_HANDLE_TYPE_DEFAULT;
+                data.ndt = getWindowPtrProperties(window, c.SDL_PROP_WINDOW_X11_DISPLAY_POINTER);
+                data.nwh = getWindowIntProperties(window, c.SDL_PROP_WINDOW_X11_WINDOW_NUMBER);
+            } else if (std.mem.eql(u8, video_driver, "x11")) {
+                data.type = c.BGFX_NATIVE_WINDOW_HANDLE_TYPE_WAYLAND;
+                data.ndt = getWindowIntProperties(window, c.SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER);
+                data.nwh = getWindowPtrProperties(window, c.SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER);
+            } else {
+                // Seems like Zero and Ziggy can do things like just Ferris
+                std.debug.panic("Unspported window driver from linux", .{});
+            }
+        },
+        .windows => {
+            data.nwh = getWindowPtrProperties(window, c.SDL_PROP_WINDOW_WIN32_HWND_POINTER);
+        },
+        .macos => {
+            data.nwh = getWindowPtrProperties(window, c.SDL_PROP_WINDOW_COCOA_WINDOW_POINTER);
+        },
+        else => {
+            std.debug.panic("Unsupported os: {s}\n", .{@tagName(builtin.os.tag)});
+        },
+    }
+
+    return data;
+}
+
+pub fn getWindowPtrProperties(window: *c.SDL_Window, property_name: [:0]const u8) *anyopaque {
+
+    // It returns the property id or 0 if the given property is not found
+    const properties = c.SDL_GetWindowProperties(window);
+
+    if (properties == 0) {
+        sdlError("Failed to get the SDL window property ID with the property name.");
+    }
+
+    return c.SDL_GetPointerProperty(properties, property_name, null) orelse {
+        std.debug.panic("Failed to get SDL window property '{s}'", .{property_name});
+    };
+}
+
+pub fn getWindowIntProperties(window: *c.SDL_Window, property_name: [:0]const u8) *anyopaque {
+    const properties = c.SDL_GetWindowProperties(window);
+
+    if (properties == 0) {
+        sdlError("Failed to get the SDL window property ID with the property name.");
+    }
+
+    // zero is possible for counting the properties, so we have to let zero to be valid even thought it might not.
+    return @ptrFromInt(@as(usize, @intCast(c.SDL_GetNumberProperty(properties, property_name, 0))));
 }
