@@ -19,7 +19,8 @@ void main(){
     v_position = gl_position.xyz // discard the fourth dimension
 
     // They are normal mapping from a texture, giving some depth to a texture that contains marks,
-    // by defusing the light
+    // by defusing the light, and seems that the normal is identical to the normal in reflection of physics
+    // which is perpendicular to the surface.
     // Source: https://learnopengl.com/Advanced-Lighting/Normal-Mapping
     v_normal = mul(u_modelViewProj, vec4(a_normal, 0.0)).xyz;
 }

@@ -10,7 +10,7 @@
 // - https://registry.khronos.org/OpenGL/specs/gl/GLSLangSpec.1.40.pdf
 
 // This bind the input channel TEXTCOORD1 with v_position 
-vec3 v_position : TEXTCOORD1 = vec3(0.0, 0.0, 0.0); 
+vec3 v_position : TEXCOORD1 = vec3(0.0, 0.0, 0.0); 
 
 // Likewise, this pairs the NORMAL input channel with v_normal
 vec3 v_normal   : NORMAL     = vec3(0.0, 0.0, 0.0);

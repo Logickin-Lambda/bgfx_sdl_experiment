@@ -1,4 +1,5 @@
 const std = @import("std");
+const zig_bgfx = @import("zig_bgfx");
 
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
@@ -54,6 +55,29 @@ pub fn build(b: *std.Build) void {
     });
     const sdl_lib = sdl_dep.artifact("SDL3");
     exe_mod.linkLibrary(sdl_lib);
+
+    // This will be the hardest part of the project because we need to build
+    // shaders using the given library which is rare for zig projects if this
+    // is not the first time I have ever encounter such strategy.
+    // The zig_bgfx library provides a function to compile the shaderc code
+    // into different formats which we can toggle the type of backend as shown:
+    const shader_dir = zig_bgfx.buildShaderDir(b, .{
+        .target = target.result,
+        .root_path = "shader_programs", // The folder which contains all shader programs
+        .backend_configs = &.{
+            .{ .name = "opengl", .shader_model = .@"140", .supported_platforms = &.{ .windows, .linux } },
+            .{ .name = "vulkan", .shader_model = .spirv, .supported_platforms = &.{ .windows, .linux } },
+            .{ .name = "directx", .shader_model = .s_5_0, .supported_platforms = &.{.windows} },
+            .{ .name = "metal", .shader_model = .metal, .supported_platforms = &.{.macos} },
+        },
+    }) catch {
+        std.debug.panic("Failed to compile all shaders in path shader_programs", .{});
+    };
+
+    // we need to bind our shader programs as import so that our zig program can use it like other zig libraries.
+    exe.root_module.addAnonymousImport("shader_lib", .{ .root_source_file = zig_bgfx.createShaderModule(b, shader_dir) catch {
+        std.debug.panic("Failed to create shader in path shader_programs", .{});
+    } });
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
