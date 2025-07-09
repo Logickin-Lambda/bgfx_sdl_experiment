@@ -141,7 +141,11 @@ pub fn main() !void {
     // defining the vertex and index buffer; but more importantly,
     // zig can do the exact fancy python assign trick, but we
     // need the function to return a struct in order to make it work.
-    const vbh, const ibh = undefined;
+    const vbh, const ibh = createCube();
+    defer c.bgfx_destroy_vertex_buffer(vbh);
+    defer c.bgfx_destroy_index_buffer(ibh);
+
+    SKREEKH main 68
 }
 
 /// Now I have learnt something new today
@@ -247,4 +251,96 @@ fn createCube() struct { c.bgfx_vertex_buffer_handle_t, c.bgfx_index_buffer_hand
         false,
     );
     c.bgfx_vertex_layout_end(&layout);
+
+    // define all the vertices that forms a cube
+    // Because the demo only spin the cube along with the z axis,
+    // the bottom part of the cube never shows, thus skip that plane.
+    // Thus:
+    const vertex_cnt = 4 * 5; // discard the bottom face
+    const vertices, const vertices_mem = bgfxAlloc(Vertex, vertex_cnt);
+
+    // Based on the vertex layout, we need to define vertices with a group of six
+    // The first three are the coordination of the vertex,
+    // and the last three is the normal which is perpendicular to the plane
+    // since the first four vertices represent as the top face of the cube,
+    // the normal will pointing to upwards, thus 1 to z axis
+    vertices[0] = .{ -1, -1, 1, 0, 0, 1 };
+    vertices[1] = .{ 1, -1, 1, 0, 0, 1 };
+    vertices[2] = .{ -1, 1, 1, 0, 0, 1 };
+    vertices[3] = .{ 1, 1, 1, 0, 0, 1 };
+
+    // The next face is the right side, so the normal stick towards right, and etc
+    vertices[4] = .{ 1, -1, 1, 1, 0, 0 };
+    vertices[5] = .{ 1, -1, -1, 1, 0, 0 };
+    vertices[6] = .{ 1, 1, 1, 1, 0, 0 };
+    vertices[7] = .{ 1, 1, -1, 1, 0, 0 };
+
+    vertices[8] = .{ -1, -1, -1, -1, 0, 0 };
+    vertices[9] = .{ -1, -1, 1, -1, 0, 0 };
+    vertices[10] = .{ -1, 1, -1, -1, 0, 0 };
+    vertices[11] = .{ -1, 1, 1, -1, 0, 0 };
+
+    vertices[12] = .{ 1, -1, -1, 0, 0, -1 };
+    vertices[13] = .{ -1, -1, -1, 0, 0, -1 };
+    vertices[14] = .{ 1, 1, -1, 0, 0, -1 };
+    vertices[15] = .{ -1, 1, -1, 0, 0, -1 };
+
+    vertices[16] = .{ -1, 1, 1, 0, 1, 0 };
+    vertices[17] = .{ 1, 1, 1, 0, 1, 0 };
+    vertices[18] = .{ -1, 1, -1, 0, 1, 0 };
+    vertices[19] = .{ 1, 1, -1, 0, 1, 0 };
+
+    // Everything on graphical software are made with triangles;
+    // thus, we need to define a set of rules to define how to
+    // arrange a bunch of triangle such that it assembles as a cube.
+
+    // A cube without bottom made of 5 square, and they all require 2 triangles to form a square face;
+    // thus, the number of the index to represent all the connected vertex is the following:
+    const index_cnt = 5 * 2 * 3;
+    const indices, const indices_mem = bgfxAlloc(u32, index_cnt);
+
+    // Unlike the example from the superbible, each face don't have a share vertex to another face,
+    // meaning that we can simply assign the index with the same orientation with, offset by the
+    // multiple of Nth face:
+
+    // just like 0..5, but since the array have a type defined,
+    // it doesn't require a cast for each of the iteration.
+    for ([_]u32{ 0, 1, 2, 3, 4 }) |idx| {
+        indices[idx * 6 + 0] = idx * 4 + 0;
+        indices[idx * 6 + 1] = idx * 4 + 1;
+        indices[idx * 6 + 2] = idx * 4 + 2;
+        indices[idx * 6 + 3] = idx * 4 + 3;
+        indices[idx * 6 + 4] = idx * 4 + 4;
+        indices[idx * 6 + 5] = idx * 4 + 5;
+    }
+
+    // Lastly, create all the vertex buffer, and bgfx is more elegant because
+    // it doesn't force us to binding the buffer after creating it.
+    const vbh = c.bgfx_create_vertex_buffer(vertices_mem, &layout, c.BGFX_BUFFER_NONE);
+    assertValidHandle(vbh);
+
+    const ibh = c.bgfx_create_index_buffer(indices_mem, c.BGFX_BUFFER_INDEX32);
+    assertValidHandle(ibh);
+
+    return .{ vbh, ibh };
+}
+
+/// Seems like we can't use the zig allocator, but to stick with bgfx allocator.
+/// I am also not going to touch it unless I manage to replicate the example.
+/// Seems like allocation is similar to all other allocator I have used before,
+/// except for doing an align cast which I will have a deeper later.
+pub fn bgfxAlloc(comptime T: type, count: uzise) struct { []T, *const c.bgfx_memory_t } {
+    const size: u32 = @intCast(count * @sizeOf(T));
+    const memory: *const c.bgfx_memory_t = c.bgfx_alloc(@ptrCast(size)) orelse @panic("Out Of Memory Error");
+
+    // Since the allocated memory is byte size, we need to align the index
+    // size to the given type, thus an align cast.
+    const ptr: [*]align(@alignOf(T)) T = @alignCast(@ptrCast(memory.data));
+
+    // The ptr is used for assign values while memory used for passing into the bgfx functions
+    return .{ ptr[0..count], memory };
+}
+
+fn assertValidHandle(handle: anytype) void {
+    std.debug.assert(handle.idx != std.math.maxInt(u16));
 }
