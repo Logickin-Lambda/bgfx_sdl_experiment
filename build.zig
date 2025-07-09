@@ -36,7 +36,7 @@ pub fn build(b: *std.Build) void {
 
     // Let me try to default my program as Vulkan
     const bgfx = b.dependency("zig_bgfx", .{
-        .optimize = .ReleaseFast,
+        .optimize = optimize,
         .directx11 = false,
         .directx12 = false,
     });
@@ -63,7 +63,7 @@ pub fn build(b: *std.Build) void {
     // into different formats which we can toggle the type of backend as shown:
     const shader_dir = zig_bgfx.buildShaderDir(b, .{
         .target = target.result,
-        .root_path = "shader_programs", // The folder which contains all shader programs
+        .root_path = "shader_programs",
         .backend_configs = &.{
             .{ .name = "opengl", .shader_model = .@"140", .supported_platforms = &.{ .windows, .linux } },
             .{ .name = "vulkan", .shader_model = .spirv, .supported_platforms = &.{ .windows, .linux } },
@@ -71,18 +71,28 @@ pub fn build(b: *std.Build) void {
             .{ .name = "metal", .shader_model = .metal, .supported_platforms = &.{.macos} },
         },
     }) catch {
-        std.debug.panic("Failed to compile all shaders in path shader_programs", .{});
+        @panic("failed to compile all shaders in path 'shaders'");
     };
 
     // we need to bind our shader programs as import so that our zig program can use it like other zig libraries.
-    exe.root_module.addAnonymousImport("shader_lib", .{ .root_source_file = zig_bgfx.createShaderModule(b, shader_dir) catch {
-        std.debug.panic("Failed to create shader in path shader_programs", .{});
-    } });
+    exe.root_module.addAnonymousImport("shaders_raw", .{
+        .root_source_file = zig_bgfx.createShaderModule(b, shader_dir) catch {
+            std.debug.panic("failed to create shader module from path 'shaders' ", .{});
+        },
+    });
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
     b.installArtifact(exe);
+
+    // install shaders into zig-out
+    const shader_dir_install = b.addInstallDirectory(.{
+        .source_dir = shader_dir.files.getDirectory(),
+        .install_dir = .prefix,
+        .install_subdir = "my_shader_dir",
+    });
+    b.getInstallStep().dependOn(&shader_dir_install.step);
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish

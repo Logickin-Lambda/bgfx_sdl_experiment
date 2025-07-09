@@ -15,8 +15,8 @@ void main(){
     // Seems like shaderc doesn't have operator overloading, so it use the mul() function instead.
     // Otherwise, they works similar to OpenGL once again
 
-    gl_position = mul(u_modelViewProj, vec4(a_position, 1.0));
-    v_position = gl_position.xyz // discard the fourth dimension
+    gl_Position = mul(u_modelViewProj, vec4(a_position, 1.0));
+    v_position = gl_Position.xyz; // discard the fourth dimension
 
     // They are normal mapping from a texture, giving some depth to a texture that contains marks,
     // by defusing the light, and seems that the normal is identical to the normal in reflection of physics

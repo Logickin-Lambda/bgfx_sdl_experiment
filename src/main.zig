@@ -4,6 +4,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const zm = @import("zm");
+const shaders_raw = @import("shaders_raw");
 
 // Based on my understanding, the zig SDL library is actually not a zig library,
 // but a collection of the original C library built with zig as a substitution
@@ -129,8 +130,18 @@ pub fn main() !void {
     // Once compiled, we can bind it with a name such that we can import the shader just like
     // a normal zig import.
     const shaders = switch (renderer_type) {
-        c.BGFX_RENDERER_TYPE_OPENGL => SKREEKH,
+        c.BGFX_RENDERER_TYPE_OPENGL => shaders_raw.opengl,
+        c.BGFX_RENDERER_TYPE_VULKAN => shaders_raw.vulkan,
+        c.BGFX_RENDERER_TYPE_DIRECT3D11 => shaders_raw.directx,
+        c.BGFX_RENDERER_TYPE_METAL => shaders_raw.metal,
+        else => @panic("Unknown backend type"),
     };
+
+    // Finally, there are something familiar from the OpenGL
+    // defining the vertex and index buffer; but more importantly,
+    // zig can do the exact fancy python assign trick, but we
+    // need the function to return a struct in order to make it work.
+    const vbh, const ibh = undefined;
 }
 
 /// Now I have learnt something new today
@@ -207,4 +218,33 @@ pub fn getWindowIntProperties(window: *c.SDL_Window, property_name: [:0]const u8
 
     // zero is possible for counting the properties, so we have to let zero to be valid even thought it might not.
     return @ptrFromInt(@as(usize, @intCast(c.SDL_GetNumberProperty(properties, property_name, 0))));
+}
+
+fn createCube() struct { c.bgfx_vertex_buffer_handle_t, c.bgfx_index_buffer_handle_t } {
+    // define vertex layout? Not sure what it means yet.
+    const Vertex = [6]f32; // Never thought of defining a type like this, learnt something today
+
+    // bgfx_vertex_layout_s and bgfx_vertex_layout_t are... same?
+    // Anyways, the following code are used to defining the layout of the incoming vertex data,
+    // and in this example, it defines the first three float for the vertex location, followed
+    // by next three float for the normal of the vertex:
+    var layout = std.mem.zeroes(c.bgfx_vertex_layout_t);
+    _ = c.bgfx_vertex_layout_begin(&bgfx_vertex_layout_t, c.BGFX_RENDERER_TYPE_NOOP);
+    _ = c.bgfx_vertex_layout_add(
+        &layout,
+        c.BGFX_ATTRIB_POSITION,
+        3,
+        c.BGFX_ATTRIB_TYPE_FLOAT,
+        false,
+        false,
+    );
+    _ = c.bgfx_vertex_layout_add(
+        &layout,
+        c.BGFX_ATTRIB_NORMAL,
+        3,
+        c.BGFX_ATTRIB_TYPE_FLOAT,
+        false,
+        false,
+    );
+    c.bgfx_vertex_layout_end(&layout);
 }

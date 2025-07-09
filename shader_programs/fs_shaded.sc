@@ -1,6 +1,6 @@
 $input v_position, v_normal
 
-#include <bgfx_shader>
+#include <bgfx_shader.sh>
 
 uniform vec4 u_color;
 
@@ -26,17 +26,26 @@ void main(){
     // view point by doing a dot product. With both of the lighting, we can combine 
     // both of them for the final lighting effect.
 
-    vec3 light_pos = vec3(20, 20, -20);                         // define the location of the light source
-    vec3 light_direction = normalize(light_pos - v_position);   // getting the light direction by subtracting the light source and view point location
-    vec2 light_color = vec3(1, 1, 1);                           // Bright! A white light; If there'd be any glory in war 
+    // define the location of the light source
+    vec3 light_pos = vec3(20.0, 20.0, -20.0);         
+
+    // getting the light direction by subtracting the light source and view point location                
+    vec3 light_direction = normalize(light_pos - v_position);   
+    // Bright! A white light; If there'd be any glory in war 
+    vec3 light_color = vec3(1.0, 1.0, 1.0);                           
 
     vec3 ambient = 0.2 * light_color;
-    vec3 diffuse = max(dot(normal, light_direction), 0) * light_color; // this calculates the perception of light from view point given the light source.
+
+    // this calculates the perception of light from view point given the light source.
+    vec3 diffuse = max(dot(normal, light_direction), 0.0) * light_color; 
 
     // It uses a uniform instead of texture since the original example has a function to change color to the cube given a key press.
     vec3 color = u_color.xyz * 0.9;
     
     // finalize all the lighting and return all the color and lighting information to the color output
-    gl_FragColor.xyz = (ambient + diffuse) * color;             // if we work on texture, change that with the texture() function instead of using color 
-    gl_FragColor.w = 1.0                                        // alpha channel
+    // if we work on texture, change that with the texture() function instead of using color 
+    gl_FragColor.xyz = (ambient + diffuse) * color;    
+
+    // alpha channel         
+    gl_FragColor.w = 1.0;                                       
 }
