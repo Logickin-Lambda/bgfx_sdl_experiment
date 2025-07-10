@@ -145,7 +145,44 @@ pub fn main() !void {
     defer c.bgfx_destroy_vertex_buffer(vbh);
     defer c.bgfx_destroy_index_buffer(ibh);
 
-    SKREEKH main 68
+    // We have compiled the shader in the build system, and now we need to create a program
+    // to attach and link the shaders:
+    const programs: []const struct {
+        name: [:0]const u8,
+        handle: c.bgfx_program_handle_t,
+    } = &.{
+        .{
+            .name = "plain",
+            .handle = createProgram(shaders.vs_default, shaders.fs_color),
+        },
+        .{
+            .name = "shaded",
+            .handle = createProgram(shaders.vs_default, shaders.fs_shaded),
+        },
+    };
+
+    // It turns we can defer a whole block of function instead of individuals.
+    defer {
+        for (programs) |program| {
+            c.bgfx_destroy_program(program.handle);
+        }
+    }
+
+    // Define uniforms; however, bgfx also have builtin uniforms for specific purpose,
+    // so this is the reason why we don't need to define u_modelViewProj.
+    // Source: https://dev.harfang3d.com/docs/3.2.7/man.shader/#predefined-uniforms
+
+    // Not sure what _num does, will have a search for it
+    const u_color = c.bgfx_create_uniform("u_color", c.BGFX_UNIFORM_TYPE_VEC4, 1);
+    defer c.bgfx_destroy_uniform(u_color);
+
+    // show debug text, but I need experiments to see how it really works
+    c.bgfx_set_debug(c.BGFX_DEBUG_TEXT);
+
+    // set view 0 clear state
+    c.bgfx_set_view_clear(0, c.BGFX_CLEAR_COLOR | c.BGFX_CLEAR_DEPTH, 0x333333ff, 1, 0);
+
+    // Main Loop. TODO: Try to refactor this loop into a separate function
 }
 
 /// Now I have learnt something new today
@@ -233,7 +270,7 @@ fn createCube() struct { c.bgfx_vertex_buffer_handle_t, c.bgfx_index_buffer_hand
     // and in this example, it defines the first three float for the vertex location, followed
     // by next three float for the normal of the vertex:
     var layout = std.mem.zeroes(c.bgfx_vertex_layout_t);
-    _ = c.bgfx_vertex_layout_begin(&bgfx_vertex_layout_t, c.BGFX_RENDERER_TYPE_NOOP);
+    _ = c.bgfx_vertex_layout_begin(&layout, c.BGFX_RENDERER_TYPE_NOOP);
     _ = c.bgfx_vertex_layout_add(
         &layout,
         c.BGFX_ATTRIB_POSITION,
@@ -329,7 +366,7 @@ fn createCube() struct { c.bgfx_vertex_buffer_handle_t, c.bgfx_index_buffer_hand
 /// I am also not going to touch it unless I manage to replicate the example.
 /// Seems like allocation is similar to all other allocator I have used before,
 /// except for doing an align cast which I will have a deeper later.
-pub fn bgfxAlloc(comptime T: type, count: uzise) struct { []T, *const c.bgfx_memory_t } {
+pub fn bgfxAlloc(comptime T: type, count: usize) struct { []T, *const c.bgfx_memory_t } {
     const size: u32 = @intCast(count * @sizeOf(T));
     const memory: *const c.bgfx_memory_t = c.bgfx_alloc(@ptrCast(size)) orelse @panic("Out Of Memory Error");
 
@@ -343,4 +380,21 @@ pub fn bgfxAlloc(comptime T: type, count: uzise) struct { []T, *const c.bgfx_mem
 
 fn assertValidHandle(handle: anytype) void {
     std.debug.assert(handle.idx != std.math.maxInt(u16));
+}
+
+fn createProgram(vs: []const u8, fs: []const u8) c.bgfx_program_handle_t {
+    // This is a bit different compared to OpenGL which I
+    // can direct turn the problem into reference by prepend
+    // &, but bgfx is a bit picky which I have to create
+    // their own reference instead.
+    const vs_ref = c.bgfx_make_ref(vs.ptr, vs.len);
+    const vs_handle = c.bgfx_create_shader(vs_ref);
+    assertValidHandle(vs_handle);
+
+    const fs_ref = c.bgfx_make_ref(fs.ptr, fs.len);
+    const fs_handle = c.bgfx_create_shader(fs_ref);
+    assertValidHandle(fs_handle);
+
+    const prog_handle = c.bgfx_create_program(vs_handle, fs.handle, true);
+    assertValidHandle(prog_handle);
 }
