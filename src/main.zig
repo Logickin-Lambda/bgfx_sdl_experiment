@@ -20,6 +20,24 @@ const c = @cImport({
     @cInclude("bgfx/c99/bgfx.h");
 });
 
+const Program = struct {
+    name: [:0]const u8,
+    handle: c.bgfx_program_handle_t,
+};
+
+const colors: []const [4]f32 = &.{
+    .{ 1, 0.23, 0.19, 1 },
+    .{ 1, 0.58, 0, 1 },
+    .{ 1, 0.8, 0, 1 },
+    .{ 0.2, 0.78, 0.35, 1 },
+    .{ 0.35, 0.78, 0.98, 1 },
+    .{ 0, 0.48, 1, 1 },
+    .{ 0.69, 0.32, 0.87, 1 },
+    .{ 1, 0.18, 0.33, 1 },
+    .{ 0.39, 0.82, 1, 1 },
+    .{ 0.69, 1, 0.34, 1 },
+};
+
 pub fn main() !void {
     // As usual, we need to initialize the window component
     // before drawing anything at the shader level.
@@ -147,10 +165,7 @@ pub fn main() !void {
 
     // We have compiled the shader in the build system, and now we need to create a program
     // to attach and link the shaders:
-    const programs: []const struct {
-        name: [:0]const u8,
-        handle: c.bgfx_program_handle_t,
-    } = &.{
+    const programs: []const Program = &.{
         .{
             .name = "plain",
             .handle = createProgram(shaders.vs_default, shaders.fs_color),
@@ -183,6 +198,15 @@ pub fn main() !void {
     c.bgfx_set_view_clear(0, c.BGFX_CLEAR_COLOR | c.BGFX_CLEAR_DEPTH, 0x333333ff, 1, 0);
 
     // Main Loop. TODO: Try to refactor this loop into a separate function
+    mainEventLoop(
+        programs,
+        u_color,
+        vbh,
+        ibh,
+        width,
+        height,
+        backend_name,
+    );
 }
 
 /// Now I have learnt something new today
@@ -368,7 +392,7 @@ fn createCube() struct { c.bgfx_vertex_buffer_handle_t, c.bgfx_index_buffer_hand
 /// except for doing an align cast which I will have a deeper later.
 pub fn bgfxAlloc(comptime T: type, count: usize) struct { []T, *const c.bgfx_memory_t } {
     const size: u32 = @intCast(count * @sizeOf(T));
-    const memory: *const c.bgfx_memory_t = c.bgfx_alloc(@ptrCast(size)) orelse @panic("Out Of Memory Error");
+    const memory: *const c.bgfx_memory_t = c.bgfx_alloc(size) orelse @panic("Out Of Memory Error");
 
     // Since the allocated memory is byte size, we need to align the index
     // size to the given type, thus an align cast.
@@ -387,14 +411,96 @@ fn createProgram(vs: []const u8, fs: []const u8) c.bgfx_program_handle_t {
     // can direct turn the problem into reference by prepend
     // &, but bgfx is a bit picky which I have to create
     // their own reference instead.
-    const vs_ref = c.bgfx_make_ref(vs.ptr, vs.len);
+    const vs_ref = c.bgfx_make_ref(vs.ptr, @intCast(vs.len));
     const vs_handle = c.bgfx_create_shader(vs_ref);
     assertValidHandle(vs_handle);
 
-    const fs_ref = c.bgfx_make_ref(fs.ptr, fs.len);
+    const fs_ref = c.bgfx_make_ref(fs.ptr, @intCast(fs.len));
     const fs_handle = c.bgfx_create_shader(fs_ref);
     assertValidHandle(fs_handle);
 
-    const prog_handle = c.bgfx_create_program(vs_handle, fs.handle, true);
+    const prog_handle = c.bgfx_create_program(vs_handle, fs_handle, true);
     assertValidHandle(prog_handle);
+
+    return prog_handle;
+}
+
+pub fn mainEventLoop(programs: []const Program, u_color: c.bgfx_uniform_handle_t, vbh: c.bgfx_vertex_buffer_handle_t, ibh: c.bgfx_index_buffer_handle_t, width: comptime_int, height: comptime_int, backend_name: [*c]const u8) void {
+    var running = true;
+    var mesh_rotation: f32 = 0; // The angle of rotation, in radian
+    var program_index: usize = 0;
+    var color_index: usize = 0; // used for select different color.
+
+    while (running) {
+        pollEvents(&running, &program_index, &color_index, programs);
+        mesh_rotation += 0.05;
+        if (mesh_rotation >= 2.0 * std.math.pi) {
+            mesh_rotation = 0;
+        }
+
+        const program = programs[program_index];
+        const color = colors[color_index];
+
+        // set up view and projection matrix
+        const at = zm.Vec3f{ 0, 0, 0 };
+        const eye = zm.Vec3f{ 0, 6, -15 };
+        const up = zm.Vec3f{ 0, 1, 0 };
+        const view = zm.Mat4f.lookAt(eye, at, up);
+        const proj = zm.Mat4f.perspective(
+            std.math.degreesToRadians(60),
+            @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)),
+            0.01,
+            100,
+        );
+
+        // This might cause problems because zm is row major while the original OpenGl
+        // convention is column major. We might need to transpose the matrix.
+        // These might be the equivalence of gl.Viewport
+        c.bgfx_set_view_transform(0, &view.data, &proj.data);
+        c.bgfx_set_view_rect(0, 0, 0, width, height);
+
+        // submit cube
+        // Define the orientation of the cube:
+        const transform = zm.Mat4f.rotation(.{ 0, 1, 0 }, mesh_rotation);
+        _ = c.bgfx_set_transform(&transform.data, 1);
+
+        c.bgfx_set_uniform(u_color, &color, 1);
+        c.bgfx_set_vertex_buffer(0, vbh, 0, std.math.maxInt(u32));
+        c.bgfx_set_index_buffer(ibh, 0, std.math.maxInt(u32));
+
+        // TODO: Need to understand about the purpose of each flags:
+        c.bgfx_set_state(c.BGFX_STATE_WRITE_R | c.BGFX_STATE_WRITE_G |
+            c.BGFX_STATE_WRITE_B | c.BGFX_STATE_WRITE_A |
+            c.BGFX_STATE_WRITE_Z | c.BGFX_STATE_DEPTH_TEST_LESS |
+            c.BGFX_STATE_CULL_CCW | c.BGFX_STATE_MSAA, 0);
+
+        // put the project in effect
+        c.bgfx_submit(0, program.handle, 1, c.BGFX_DISCARD_ALL);
+
+        // print debug text onto the screen
+        c.bgfx_dbg_text_clear(0, false);
+        c.bgfx_dbg_text_printf(1, 1, 0xf, "Using %s backend", backend_name);
+        c.bgfx_dbg_text_printf(1, 2, 0xf, "Current program: %s", program.name.ptr);
+        c.bgfx_dbg_text_printf(1, 4, 0xf, "Press Space to cycle through programs");
+        c.bgfx_dbg_text_printf(1, 5, 0xf, "Press Tab to cycle through colors");
+
+        // render frame
+        _ = c.bgfx_frame(false);
+    }
+}
+
+pub fn pollEvents(running: *bool, program_index: *usize, color_index: *usize, program: []const Program) void {
+    var event: c.SDL_Event = undefined;
+    while (c.SDL_PollEvent(&event)) {
+        switch (event.type) {
+            c.SDL_EVENT_QUIT => running.* = false,
+            c.SDL_EVENT_KEY_DOWN => switch (event.key.key) {
+                c.SDLK_Q, c.SDLK_ESCAPE => running.* = false,
+                c.SDLK_SPACE => program_index.* = (program_index.* + 1) % program.len,
+                c.SDLK_TAB => color_index.* = (color_index.* + 1) % colors.len,
+                else => {},
+            },
+            else => {},
+        }
+    }
 }
