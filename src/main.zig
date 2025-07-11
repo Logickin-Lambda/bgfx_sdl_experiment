@@ -370,9 +370,9 @@ fn createCube() struct { c.bgfx_vertex_buffer_handle_t, c.bgfx_index_buffer_hand
         indices[idx * 6 + 0] = idx * 4 + 0;
         indices[idx * 6 + 1] = idx * 4 + 1;
         indices[idx * 6 + 2] = idx * 4 + 2;
-        indices[idx * 6 + 3] = idx * 4 + 3;
-        indices[idx * 6 + 4] = idx * 4 + 4;
-        indices[idx * 6 + 5] = idx * 4 + 5;
+        indices[idx * 6 + 3] = idx * 4 + 1;
+        indices[idx * 6 + 4] = idx * 4 + 3;
+        indices[idx * 6 + 5] = idx * 4 + 2;
     }
 
     // Lastly, create all the vertex buffer, and bgfx is more elegant because
@@ -411,11 +411,11 @@ fn createProgram(vs: []const u8, fs: []const u8) c.bgfx_program_handle_t {
     // can direct turn the problem into reference by prepend
     // &, but bgfx is a bit picky which I have to create
     // their own reference instead.
-    const vs_ref = c.bgfx_make_ref(vs.ptr, @intCast(vs.len));
+    const vs_ref = c.bgfx_make_ref(vs.ptr, @intCast(vs.len)) orelse @panic("Out of Memory");
     const vs_handle = c.bgfx_create_shader(vs_ref);
     assertValidHandle(vs_handle);
 
-    const fs_ref = c.bgfx_make_ref(fs.ptr, @intCast(fs.len));
+    const fs_ref = c.bgfx_make_ref(fs.ptr, @intCast(fs.len)) orelse @panic("Out of Memory");
     const fs_handle = c.bgfx_create_shader(fs_ref);
     assertValidHandle(fs_handle);
 
@@ -445,34 +445,38 @@ pub fn mainEventLoop(programs: []const Program, u_color: c.bgfx_uniform_handle_t
         const at = zm.Vec3f{ 0, 0, 0 };
         const eye = zm.Vec3f{ 0, 6, -15 };
         const up = zm.Vec3f{ 0, 1, 0 };
-        const view = zm.Mat4f.lookAt(eye, at, up);
+        const view = zm.Mat4f.lookAt(eye, at, up).transpose();
         const proj = zm.Mat4f.perspective(
             std.math.degreesToRadians(60),
             @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(height)),
             0.01,
             100,
-        );
+        ).transpose();
 
         // This might cause problems because zm is row major while the original OpenGl
         // convention is column major. We might need to transpose the matrix.
         // These might be the equivalence of gl.Viewport
-        c.bgfx_set_view_transform(0, &view.data, &proj.data);
+        c.bgfx_set_view_transform(0, &view, &proj);
         c.bgfx_set_view_rect(0, 0, 0, width, height);
 
         // submit cube
         // Define the orientation of the cube:
-        const transform = zm.Mat4f.rotation(.{ 0, 1, 0 }, mesh_rotation);
-        _ = c.bgfx_set_transform(&transform.data, 1);
+        const transform = zm.Mat4f.rotation(.{ 0, 1, 0 }, mesh_rotation).transpose();
+        _ = c.bgfx_set_transform(&transform, 1);
 
         c.bgfx_set_uniform(u_color, &color, 1);
         c.bgfx_set_vertex_buffer(0, vbh, 0, std.math.maxInt(u32));
         c.bgfx_set_index_buffer(ibh, 0, std.math.maxInt(u32));
 
         // TODO: Need to understand about the purpose of each flags:
+        // Seems like this are similar to gl.enable, applying a certain test
+        // like removing back facing faces or face that is out of view
+        // but for some reasons, my version culls the face in reversed direction,
+        // opposing to the original example.
         c.bgfx_set_state(c.BGFX_STATE_WRITE_R | c.BGFX_STATE_WRITE_G |
             c.BGFX_STATE_WRITE_B | c.BGFX_STATE_WRITE_A |
             c.BGFX_STATE_WRITE_Z | c.BGFX_STATE_DEPTH_TEST_LESS |
-            c.BGFX_STATE_CULL_CCW | c.BGFX_STATE_MSAA, 0);
+            c.BGFX_STATE_CULL_CW | c.BGFX_STATE_MSAA, 0);
 
         // put the project in effect
         c.bgfx_submit(0, program.handle, 1, c.BGFX_DISCARD_ALL);
